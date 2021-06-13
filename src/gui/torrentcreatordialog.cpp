@@ -65,6 +65,8 @@ TorrentCreatorDialog::TorrentCreatorDialog(QWidget *parent, const QString &defau
     , m_storeComments(SETTINGS_KEY("Comments"))
     , m_storeLastSavePath(SETTINGS_KEY("LastSavePath"))
     , m_storeSource(SETTINGS_KEY("Source"))
+    , m_storeUseExternalTool(SETTINGS_KEY("UseExternalTool"))
+    , m_storeExternalToolPath(SETTINGS_KEY("ExternalToolPath"))
 {
     m_ui->setupUi(this);
     setAttribute(Qt::WA_DeleteOnClose);
@@ -74,9 +76,12 @@ TorrentCreatorDialog::TorrentCreatorDialog(QWidget *parent, const QString &defau
 
     connect(m_ui->addFileButton, &QPushButton::clicked, this, &TorrentCreatorDialog::onAddFileButtonClicked);
     connect(m_ui->addFolderButton, &QPushButton::clicked, this, &TorrentCreatorDialog::onAddFolderButtonClicked);
+    connect(m_ui->selectExternalToolButton, &QPushButton::clicked, this, &TorrentCreatorDialog::onSelectExternalToolButtonClicked);
+    connect(m_ui->checkUseExternalTool, &QGroupBox::clicked, this, &TorrentCreatorDialog::onUseExternalToolBoxClicked);
     connect(m_ui->buttonBox, &QDialogButtonBox::accepted, this, &TorrentCreatorDialog::onCreateButtonClicked);
     connect(m_ui->buttonCalcTotalPieces, &QPushButton::clicked, this, &TorrentCreatorDialog::updatePiecesCount);
 
+    connect(m_creatorThread, &BitTorrent::TorrentCreatorThread::writeOutput, m_ui->externalToolOutput, &QTextEdit::insertPlainText);
     connect(m_creatorThread, &BitTorrent::TorrentCreatorThread::creationSuccess, this, &TorrentCreatorDialog::handleCreationSuccess);
     connect(m_creatorThread, &BitTorrent::TorrentCreatorThread::creationFailure, this, &TorrentCreatorDialog::handleCreationFailure);
     connect(m_creatorThread, &BitTorrent::TorrentCreatorThread::updateProgress, this, &TorrentCreatorDialog::updateProgressBar);
@@ -119,6 +124,32 @@ void TorrentCreatorDialog::onAddFileButtonClicked()
     QString oldPath = m_ui->textInputPath->text();
     QString path = QFileDialog::getOpenFileName(this, tr("Select file"), oldPath);
     updateInputPath(path);
+}
+
+void TorrentCreatorDialog::onSelectExternalToolButtonClicked()
+{
+    QString oldPath = m_ui->textExternalToolPath->text();
+    QString path = QFileDialog::getOpenFileName(this, tr("Select file"), oldPath);
+    if (path.isEmpty()) return;
+    m_ui->textExternalToolPath->setText(Utils::Fs::toNativePath(path));
+}
+
+void TorrentCreatorDialog::onUseExternalToolBoxClicked(bool checked)
+{
+    m_ui->comboPieceSize->setEnabled(!checked);
+    m_ui->buttonCalcTotalPieces->setEnabled(!checked);
+    m_ui->checkPrivate->setEnabled(!checked);
+#if (LIBTORRENT_VERSION_NUM >= 20000)
+    m_ui->comboTorrentFormat->setEnabled(!checked);
+#else
+    m_ui->checkOptimizeAlignment->setEnabled(!checked);
+    m_ui->spinPaddedFileSizeLimit->setEnabled(!checked);
+#endif
+
+    m_ui->groupBox_3->setVisible(!checked);
+    m_ui->groupBox_4->setVisible(checked);
+    m_ui->progressBar->setVisible(!checked);
+    m_ui->progressLbl->setVisible(!checked);
 }
 
 int TorrentCreatorDialog::getPieceSize() const
@@ -183,14 +214,29 @@ void TorrentCreatorDialog::onCreateButtonClicked()
     }
     input = fi.canonicalFilePath();
 
-    // get save path
-    const QString savePath = m_storeLastSavePath.get(QDir::homePath()) + QLatin1Char('/') + fi.fileName() + QLatin1String(".torrent");
-    QString destination = QFileDialog::getSaveFileName(this, tr("Select where to save the new torrent"), savePath, tr("Torrent Files (*.torrent)"));
-    if (destination.isEmpty())
-        return;
-    if (!destination.endsWith(C_TORRENT_FILE_EXTENSION, Qt::CaseInsensitive))
-        destination += C_TORRENT_FILE_EXTENSION;
-    m_storeLastSavePath = Utils::Fs::branchPath(destination);
+    QString externalTool = Utils::Fs::toUniformPath(m_ui->textExternalToolPath->text()).trimmed();
+    const QFileInfo fi2(externalTool);
+    externalTool = fi2.canonicalFilePath();
+
+    QString destination;
+    if (m_ui->checkUseExternalTool->isChecked())
+    {
+        if (m_ui->textExternalToolPath->text().isEmpty())
+            return;
+        destination = input + QLatin1String(".torrent");
+        m_ui->externalToolOutput->clear();
+    }
+    else
+    {
+        // get save path
+        const QString savePath = m_storeLastSavePath.get(QDir::homePath()) + QLatin1Char('/') + fi.fileName() + QLatin1String(".torrent");
+        destination = QFileDialog::getSaveFileName(this, tr("Select where to save the new torrent"), savePath, tr("Torrent Files (*.torrent)"));
+        if (destination.isEmpty())
+            return;
+        if (!destination.endsWith(C_TORRENT_FILE_EXTENSION, Qt::CaseInsensitive))
+            destination += C_TORRENT_FILE_EXTENSION;
+        m_storeLastSavePath = Utils::Fs::branchPath(destination);
+    }
 
     // Disable dialog & set busy cursor
     setInteractionEnabled(false);
@@ -208,9 +254,11 @@ void TorrentCreatorDialog::onCreateButtonClicked()
         , getPaddedFileSizeLimit()
 #endif
         , getPieceSize()
+        , m_ui->checkUseExternalTool->isChecked()
         , input, destination
         , m_ui->txtComment->toPlainText()
         , m_ui->lineEditSource->text()
+        , externalTool
         , trackers
         , m_ui->URLSeedsList->toPlainText().split('\n', QString::SkipEmptyParts)
     };
@@ -285,17 +333,21 @@ void TorrentCreatorDialog::setInteractionEnabled(const bool enabled) const
     m_ui->trackersList->setEnabled(enabled);
     m_ui->URLSeedsList->setEnabled(enabled);
     m_ui->txtComment->setEnabled(enabled);
-    m_ui->comboPieceSize->setEnabled(enabled);
-    m_ui->buttonCalcTotalPieces->setEnabled(enabled);
-    m_ui->checkPrivate->setEnabled(enabled);
+    m_ui->comboPieceSize->setEnabled(enabled && !m_ui->checkUseExternalTool->isChecked());
+    m_ui->buttonCalcTotalPieces->setEnabled(enabled && !m_ui->checkUseExternalTool->isChecked());
+    m_ui->checkPrivate->setEnabled(enabled && !m_ui->checkUseExternalTool->isChecked());
     m_ui->checkStartSeeding->setEnabled(enabled);
     m_ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(enabled);
     m_ui->checkIgnoreShareLimits->setEnabled(enabled && m_ui->checkStartSeeding->isChecked());
 #if (LIBTORRENT_VERSION_NUM >= 20000)
-    m_ui->widgetTorrentFormat->setEnabled(enabled);
+    m_ui->widgetTorrentFormat->setEnabled(enabled && !m_ui->checkUseExternalTool->isChecked());
 #else
-    m_ui->checkOptimizeAlignment->setEnabled(enabled);
-    m_ui->spinPaddedFileSizeLimit->setEnabled(enabled);
+    m_ui->checkOptimizeAlignment->setEnabled(enabled && !m_ui->checkUseExternalTool->isChecked());
+    m_ui->spinPaddedFileSizeLimit->setEnabled(enabled && !m_ui->checkUseExternalTool->isChecked());
+
+    m_ui->checkUseExternalTool->setEnabled(enabled);
+    m_ui->textExternalToolPath->setEnabled(enabled);
+    m_ui->selectExternalToolButton->setEnabled(enabled);
 #endif
 }
 
@@ -320,6 +372,9 @@ void TorrentCreatorDialog::saveSettings()
     m_storeSource = m_ui->lineEditSource->text();
 
     m_storeDialogSize = size();
+
+    m_storeUseExternalTool = m_ui->checkUseExternalTool->isChecked();
+    m_storeExternalToolPath = m_ui->textExternalToolPath->text().trimmed();
 }
 
 void TorrentCreatorDialog::loadSettings()
@@ -342,6 +397,25 @@ void TorrentCreatorDialog::loadSettings()
     m_ui->URLSeedsList->setPlainText(m_storeWebSeedList);
     m_ui->txtComment->setPlainText(m_storeComments);
     m_ui->lineEditSource->setText(m_storeSource);
+
+    m_ui->checkUseExternalTool->setChecked(m_storeUseExternalTool.get());
+    m_ui->textExternalToolPath->setText(m_storeExternalToolPath.get());
+
+    m_ui->groupBox_4->setVisible(m_storeUseExternalTool);
+    m_ui->groupBox_3->setVisible(!m_storeUseExternalTool);
+
+    m_ui->comboPieceSize->setEnabled(!m_storeUseExternalTool);
+    m_ui->buttonCalcTotalPieces->setEnabled(!m_storeUseExternalTool);
+    m_ui->checkPrivate->setEnabled(!m_storeUseExternalTool);
+#if (LIBTORRENT_VERSION_NUM >= 20000)
+    m_ui->comboTorrentFormat->setEnabled(!m_storeUseExternalTool);
+#else
+    m_ui->checkOptimizeAlignment->setEnabled(!m_storeUseExternalTool);
+    m_ui->spinPaddedFileSizeLimit->setEnabled(!m_storeUseExternalTool);
+#endif
+
+    m_ui->progressBar->setVisible(!m_storeUseExternalTool);
+    m_ui->progressLbl->setVisible(!m_storeUseExternalTool);
 
     Utils::Gui::resize(this, m_storeDialogSize);
 }

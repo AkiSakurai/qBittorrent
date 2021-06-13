@@ -9146,6 +9146,11 @@ Please choose a different name and try again.</source>
         <translation> KiB</translation>
     </message>
     <message>
+        <location filename="../gui/torrentcreatordialog.ui" line="375"/>
+        <source>Use external tool</source>
+        <translation>使用外部工具</translation>
+    </message>
+    <message>
         <location filename="../gui/torrentcreatordialog.ui" line="378"/>
         <source>Fields</source>
         <translation>字段</translation>
@@ -9179,6 +9184,11 @@ Please choose a different name and try again.</source>
         <location filename="../gui/torrentcreatordialog.ui" line="448"/>
         <source>Progress:</source>
         <translation>进度：</translation>
+    </message>
+    <message>
+        <location filename="../gui/torrentcreatordialog.ui" line="478"/>
+        <source>External tool output</source>
+        <translation>外部工具输出</translation>
     </message>
     <message>
         <location filename="../gui/torrentcreatordialog.cpp" line="73"/>

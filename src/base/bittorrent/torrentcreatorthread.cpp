@@ -39,6 +39,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QProcess>
 
 #include "base/exceptions.h"
 #include "base/global.h"
@@ -98,12 +99,41 @@ void TorrentCreatorThread::sendProgressSignal(int currentPieceIdx, int totalPiec
     emit updateProgress(static_cast<int>((currentPieceIdx * 100.) / totalPieces));
 }
 
+void TorrentCreatorThread::onReadyReadOutput()
+{
+    emit writeOutput(QString::fromUtf8(m_process->readAll()));
+}
+
 void TorrentCreatorThread::run()
 {
     emit updateProgress(0);
 
     try
     {
+        if (m_params.useExternalTool)
+        {
+            const QString parentPath = Utils::Fs::branchPath(m_params.inputPath) + '/';
+
+            QString command(Utils::Fs::toNativePath(m_params.externalToolPath));
+            QStringList args;
+            args << Utils::Fs::toNativePath(m_params.inputPath);
+
+            m_process = new QProcess();
+            connect(m_process, &QProcess::readyReadStandardOutput, this, &TorrentCreatorThread::onReadyReadOutput);
+            connect(m_process, &QProcess::readyReadStandardError, this, &TorrentCreatorThread::onReadyReadOutput);
+            m_process->setWorkingDirectory(Utils::Fs::toNativePath(parentPath));
+            m_process->start(command, args);
+            bool ret = m_process->waitForFinished(-1);
+
+            if (ret)
+                emit creationSuccess(m_params.savePath, parentPath);
+            else
+                emit creationFailure("");
+
+            delete m_process;
+            return;
+        }
+
         const QString parentPath = Utils::Fs::branchPath(m_params.inputPath) + '/';
 
         // Adding files to the torrent

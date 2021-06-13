@@ -56,6 +56,8 @@ private slots:
     void onCreateButtonClicked();
     void onAddFileButtonClicked();
     void onAddFolderButtonClicked();
+    void onUseExternalToolBoxClicked(bool checked);
+    void onSelectExternalToolButtonClicked();
     void handleCreationFailure(const QString &msg);
     void handleCreationSuccess(const QString &path, const QString &branchPath);
 
@@ -95,4 +97,6 @@ private:
     SettingValue<QString> m_storeComments;
     SettingValue<QString> m_storeLastSavePath;
     SettingValue<QString> m_storeSource;
+    SettingValue<bool> m_storeUseExternalTool;
+    SettingValue<QString> m_storeExternalToolPath;
 };

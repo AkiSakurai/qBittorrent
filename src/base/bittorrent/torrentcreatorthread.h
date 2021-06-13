@@ -32,6 +32,7 @@
 
 #include <QStringList>
 #include <QThread>
+#include <QProcess>
 
 namespace BitTorrent
 {
@@ -54,10 +55,12 @@ namespace BitTorrent
         int paddedFileSizeLimit;
 #endif
         int pieceSize;
+        bool useExternalTool;
         QString inputPath;
         QString savePath;
         QString comment;
         QString source;
+        QString externalToolPath;
         QStringList trackers;
         QStringList urlSeeds;
     };
@@ -86,10 +89,15 @@ namespace BitTorrent
         void creationFailure(const QString &msg);
         void creationSuccess(const QString &path, const QString &branchPath);
         void updateProgress(int progress);
+        void writeOutput(const QString &output);
+
+    private slots:
+        void onReadyReadOutput();
 
     private:
         void sendProgressSignal(int currentPieceIdx, int totalPieces);
 
         TorrentCreatorParams m_params;
+        QProcess *m_process;
     };
 }
